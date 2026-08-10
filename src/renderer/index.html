@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>X Insight Monitor</title><link rel="stylesheet" href="/style.css"/></head>
+<body>
+  <div class="shell">
+    <aside><div class="brand"><div class="brandmark">X</div><div><strong>Insight Monitor</strong><span>实时观点与事实核查</span></div></div><nav>
+      <button class="nav active" data-page="overview">概览</button><button class="nav" data-page="accounts">监控账号</button><button class="nav" data-page="posts">帖子与报告</button><button class="nav" data-page="logs">运行日志</button><button class="nav" data-page="settings">系统设置</button>
+    </nav><div class="aside-status"><i id="statusDot"></i><span id="asideStatus">未运行</span></div></aside>
+    <main><header><div><h1 id="pageTitle">运行概览</h1><p id="pageSubtitle">监控、翻译和事实核查状态</p></div><div class="header-actions"><button class="secondary" id="refreshBtn">刷新</button><button class="primary" id="toggleBtn">启动监控</button></div></header><div id="content"></div></main>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/app.ts"></script>
+</body></html>
