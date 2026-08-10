@@ -7,6 +7,18 @@ from datetime import timezone
 from twscrape import API, gather
 
 
+def configure_stdio():
+    """Use UTF-8 for the JSON-lines protocol on every platform.
+
+    Windows otherwise inherits a legacy console encoding (commonly GBK/cp936),
+    which cannot encode emoji and many other characters found in X posts.
+    """
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def value(obj, *names, default=None):
     for name in names:
         current = getattr(obj, name, None)
@@ -98,4 +110,5 @@ async def main():
 
 
 if __name__ == "__main__":
+    configure_stdio()
     asyncio.run(main())

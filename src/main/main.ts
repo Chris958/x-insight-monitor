@@ -21,9 +21,20 @@ function createTray(){
 }
 
 function registerIpc(){
-  ipcMain.handle('state:get',async()=>{const snap=store.snapshot(),secrets=await store.getSecrets();return{data:snap,status:engine.getStatus(),secretFlags:{openaiApiKey:!!secrets.openaiApiKey,wecomWebhookUrl:!!secrets.wecomWebhookUrl,xCookieHeader:!!secrets.xCookieHeader},secrets:{...secrets,openaiApiKey:'',wecomWebhookUrl:'',xCookieHeader:''}}});
+  ipcMain.handle('state:get',async()=>{const snap=store.snapshot(),secrets=await store.getSecrets();return{data:snap,status:engine.getStatus(),secretFlags:{openaiApiKey:!!secrets.openaiApiKey,wecomWebhookUrl:!!secrets.wecomWebhookUrl,xOfficialBearerToken:!!secrets.xOfficialBearerToken,xCookieHeader:!!secrets.xCookieHeader},secrets:{...secrets,openaiApiKey:'',wecomWebhookUrl:'',xOfficialBearerToken:'',xCookieHeader:''}}});
   ipcMain.handle('settings:save',async(_e,value)=>{await store.saveSettings(value);const s=store.getSettings();app.setLoginItemSettings({openAtLogin:s.autoStart,openAsHidden:s.launchMinimized});notify();});
-  ipcMain.handle('secrets:save',async(_e,value)=>{const current=await store.getSecrets();const patch=value as Record<string,string>;for(const key of ['openaiApiKey','wecomWebhookUrl','xCookieHeader'])if(!patch[key])patch[key]=(current as any)[key];await store.saveSecrets({...current,...patch});notify();});
+  ipcMain.handle('secrets:save',async(_e,value)=>{
+    const current=await store.getSecrets(),input=value as Record<string,unknown>,patch:Record<string,string>={};
+    for(const key of ['openaiApiKey','wecomWebhookUrl','xOfficialBearerToken','xCookieHeader','xAccountAlias']) if(typeof input[key]==='string') patch[key]=input[key] as string;
+    for(const key of ['openaiApiKey','wecomWebhookUrl','xOfficialBearerToken','xCookieHeader']) if(!patch[key]) patch[key]=(current as any)[key];
+    if(input.clearXOfficialBearerToken===true) patch.xOfficialBearerToken='';
+    const next={...current,...patch};
+    const sourceChanged=next.xOfficialBearerToken!==current.xOfficialBearerToken||next.xCookieHeader!==current.xCookieHeader||next.xAccountAlias!==current.xAccountAlias;
+    const wasRunning=engine.getStatus().running;
+    await store.saveSecrets(next);
+    if(wasRunning&&sourceChanged){await engine.stop();await engine.start();}
+    notify();
+  });
   ipcMain.handle('accounts:add',async(_e,v)=>{const r=await store.addAccount(v);notify();return r;}); ipcMain.handle('accounts:update',async(_e,id,v)=>{const r=await store.updateAccount(id,v);notify();return r;}); ipcMain.handle('accounts:delete',async(_e,id)=>{await store.deleteAccount(id);notify();}); ipcMain.handle('accounts:poll',async(_e,id)=>engine.pollNow(id));
   ipcMain.handle('engine:start',async()=>{await engine.start();notify();}); ipcMain.handle('engine:stop',async()=>{await engine.stop();notify();});
   ipcMain.handle('test:model',()=>engine.testModel()); ipcMain.handle('test:wecom',()=>engine.testWeCom()); ipcMain.handle('test:collector',()=>engine.testCollector());

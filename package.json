@@ -1,6 +1,6 @@
 {
   "name": "x-insight-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "X 大V监控、翻译、逻辑分析、事实核查与企业微信推送桌面应用",
   "main": "dist/main/main.js",
   "author": "X Insight Monitor",

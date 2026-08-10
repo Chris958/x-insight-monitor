@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { CollectorClient } from './collector.js';
+import { OfficialXClient } from './official-x.js';
 import { DataStore } from './store.js';
 import { AiClient } from './ai.js';
 import { SearchClient } from './search.js';
-import { StoredPost, XPost, RuntimeStatus, MonitorAccount, Evidence } from './types.js';
+import { StoredPost, XPost, RuntimeStatus, MonitorAccount, Evidence, SecretSettings, XSource } from './types.js';
 import { renderFlash, renderReport, WeComClient } from './wecom.js';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -11,7 +12,8 @@ const isNewer = (a: string, b?: string) => !b || BigInt(a) > BigInt(b);
 
 export class MonitorEngine {
   private timer?: NodeJS.Timeout;
-  private collector = new CollectorClient();
+  private unofficialCollector = new CollectorClient();
+  private collector?: { fetch(username: string, limit?: number, sinceId?: string): Promise<XPost[]> };
   private search = new SearchClient();
   private busy = new Set<string>();
   private status: RuntimeStatus = { running:false, collector:'unknown', configured:false, activeJobs:0 };
@@ -22,24 +24,46 @@ export class MonitorEngine {
   async start() {
     if (this.status.running) return;
     const secrets = await this.store.getSecrets();
-    if (!secrets.xCookieHeader || !secrets.openaiApiKey || !secrets.wecomWebhookUrl) throw new Error('请先完整配置 X Cookie、OpenAI API Key 和企业微信 Webhook');
-    await this.collector.start(secrets.xCookieHeader, secrets.xAccountAlias);
-    const health = await this.collector.health();
-    if (!health.ok) throw new Error('X 采集凭据不可用');
-    this.status = { ...this.status, running:true, collector:'healthy', configured:true };
-    await this.store.log('info','engine','监控服务已启动'); this.schedule(500); this.onChange();
+    if (!secrets.openaiApiKey || !secrets.wecomWebhookUrl || (!secrets.xOfficialBearerToken && !secrets.xCookieHeader)) throw new Error('请先配置 OpenAI API Key、企业微信 Webhook，以及 X 官方 Bearer Token 或 X Cookie');
+    const source = await this.configureCollector(secrets);
+    this.status = { ...this.status, running:true, collector:'healthy', configured:true, activeSource:source };
+    await this.store.log('info','engine',`监控服务已启动，当前渠道：${source === 'official_x' ? 'X 官方 API' : 'twscrape 非官方源'}`); this.schedule(500); this.onChange();
   }
 
   async stop() {
     this.status.running = false; if (this.timer) clearTimeout(this.timer); this.timer = undefined;
-    await this.collector.stop(); this.status.collector = 'unknown'; await this.store.log('info','engine','监控服务已停止'); this.onChange();
+    await this.unofficialCollector.stop(); this.collector=undefined; this.status.collector = 'unknown'; this.status.activeSource=undefined; await this.store.log('info','engine','监控服务已停止'); this.onChange();
   }
 
   async pollNow(accountId: string) { const account = this.store.getAccount(accountId); if (!account) throw new Error('账号不存在'); if (!this.status.running) await this.start(); await this.poll(account, true); }
 
   async testModel() { const s=this.store.getSettings(), secret=await this.store.getSecrets(); if(!secret.openaiApiKey) throw new Error('请先填写 API Key'); return new AiClient(s.openaiBaseUrl,secret.openaiApiKey).test(s.translationModel); }
   async testWeCom() { const secret=await this.store.getSecrets(); if(!secret.wecomWebhookUrl) throw new Error('请先填写企业微信 Webhook'); await new WeComClient(secret.wecomWebhookUrl).test(); }
-  async testCollector() { const secret=await this.store.getSecrets(); if(!secret.xCookieHeader) throw new Error('请先填写 X Cookie'); await this.collector.start(secret.xCookieHeader,secret.xAccountAlias); const value=await this.collector.health(); if(!this.status.running) await this.collector.stop(); return value; }
+  async testCollector() {
+    const secret=await this.store.getSecrets();
+    if(!secret.xOfficialBearerToken&&!secret.xCookieHeader) throw new Error('请先填写 X 官方 Bearer Token 或 X Cookie');
+    const wasRunning=this.status.running;
+    const source=await this.configureCollector(secret);
+    if(!wasRunning&&source==='twscrape') await this.unofficialCollector.stop();
+    if(!wasRunning) this.collector=undefined;
+    return {ok:true,source};
+  }
+
+  private async configureCollector(secret: SecretSettings): Promise<XSource> {
+    const testUsername=this.store.snapshot().accounts.find(account=>account.enabled)?.username || 'XDevelopers';
+    if(secret.xOfficialBearerToken){
+      await this.unofficialCollector.stop();
+      const official=new OfficialXClient(secret.xOfficialBearerToken);
+      await official.health(testUsername);
+      this.collector=official;
+      return 'official_x';
+    }
+    await this.unofficialCollector.start(secret.xCookieHeader,secret.xAccountAlias);
+    const health=await this.unofficialCollector.health();
+    if(!health.ok) throw new Error('X Cookie 采集凭据不可用');
+    this.collector=this.unofficialCollector;
+    return 'twscrape';
+  }
 
   private schedule(delay = 10000) { if (!this.status.running) return; this.timer = setTimeout(() => void this.cycle().finally(() => this.schedule()), delay); }
   private async cycle() {
@@ -51,7 +75,8 @@ export class MonitorEngine {
   private async poll(account: MonitorAccount, manual: boolean) {
     if (this.busy.has(account.id)) return; this.busy.add(account.id); this.onChange();
     try {
-      const posts = await this.collector.fetch(account.username, 10);
+      if(!this.collector) throw new Error('X 采集器尚未初始化');
+      const posts = await this.collector.fetch(account.username, 10, account.lastSeenPostId);
       const accepted = posts.filter(p => this.accept(account,p));
       if (!account.lastSeenPostId) {
         const newest = accepted.sort((a,b) => Number(BigInt(b.postId)-BigInt(a.postId)))[0];

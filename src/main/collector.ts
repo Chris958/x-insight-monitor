@@ -21,7 +21,17 @@ export class CollectorClient {
     const script = join(app.getAppPath(), 'collector', 'collector.py');
     const command = app.isPackaged && existsSync(packaged) ? packaged : (process.platform === 'win32' ? 'python' : 'python3');
     const args = app.isPackaged && existsSync(packaged) ? ['--db', this.dbPath] : [script, '--db', this.dbPath];
-    this.proc = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, env: { ...process.env, TWS_TELEMETRY: '0', PYTHONUNBUFFERED: '1' } });
+    this.proc = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      env: {
+        ...process.env,
+        TWS_TELEMETRY: '0',
+        PYTHONUNBUFFERED: '1',
+        PYTHONUTF8: '1',
+        PYTHONIOENCODING: 'utf-8'
+      }
+    });
     this.proc.stdout.on('data', b => this.onData(b.toString()));
     this.proc.stderr.on('data', b => process.stderr.write(`[collector] ${b}`));
     this.proc.once('exit', () => { this.proc = undefined; for (const p of this.pending.values()) p.reject(new Error('采集进程已退出')); this.pending.clear(); });
@@ -30,7 +40,7 @@ export class CollectorClient {
   }
 
   async health() { return this.call<{ ok: boolean; accounts: number }>('health', {}); }
-  async fetch(username: string, limit = 10): Promise<XPost[]> { return this.call<XPost[]>('fetch', { username, limit }); }
+  async fetch(username: string, limit = 10, _sinceId?: string): Promise<XPost[]> { return this.call<XPost[]>('fetch', { username, limit }); }
 
   async stop() {
     if (this.proc) { try { await this.call('shutdown', {}, 3000); } catch { this.proc.kill(); } this.proc = undefined; }

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AppData, AppLog, AppSettings, DEFAULT_SETTINGS, MonitorAccount, SecretSettings, StoredPost } from './types.js';
 
-const EMPTY_SECRETS: SecretSettings = { openaiApiKey: '', wecomWebhookUrl: '', xCookieHeader: '', xAccountAlias: 'desktop-monitor' };
+const EMPTY_SECRETS: SecretSettings = { openaiApiKey: '', wecomWebhookUrl: '', xOfficialBearerToken: '', xCookieHeader: '', xAccountAlias: 'desktop-monitor' };
 
 export class DataStore {
   private data!: AppData;
