@@ -13,11 +13,18 @@ export interface AppSettings {
   includeReposts: boolean;
   dailyModelLimit: number;
   maxAccounts: number;
+  realtimeWeComAppEnabled: boolean;
+  groupDailySummaryEnabled: boolean;
+  dailySummaryTime: string;
 }
 
 export interface SecretSettings {
   openaiApiKey: string;
   wecomWebhookUrl: string;
+  wecomCorpId: string;
+  wecomAgentId: string;
+  wecomAppSecret: string;
+  wecomRecipientUserIds: string;
   xOfficialBearerToken: string;
   xCookieHeader: string;
   xAccountAlias: string;
@@ -51,10 +58,11 @@ export interface StoredPost extends XPost {
   logic?: LogicAnalysis; claims?: Claim[]; claimResults?: ClaimResult[];
   overallResult?: string; limitations?: string[]; error?: string;
   flashSentAt?: string; reportSentAt?: string;
+  pushErrors?: string[];
 }
 
 export interface AppLog { id: string; at: string; level: 'info'|'warn'|'error'; component: string; message: string; }
-export interface AppData { version: 1; settings: AppSettings; accounts: MonitorAccount[]; posts: StoredPost[]; logs: AppLog[]; usage: Record<string, number>; }
+export interface AppData { version: 2; settings: AppSettings; accounts: MonitorAccount[]; posts: StoredPost[]; logs: AppLog[]; usage: Record<string, number>; dailySummaryDates: string[]; }
 export type XSource = 'official_x' | 'twscrape';
 export interface RuntimeStatus { running: boolean; collector: 'unknown'|'healthy'|'error'; configured: boolean; activeSource?: XSource; lastCycleAt?: string; activeJobs: number; }
 
@@ -62,5 +70,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pollIntervalSec: 60, openaiBaseUrl: 'https://api.openai.com/v1',
   translationModel: 'gpt-5.6-luna', analysisModel: 'gpt-5.6',
   timezone: 'Asia/Shanghai', autoStart: false, launchMinimized: false,
-  includeReplies: false, includeReposts: false, dailyModelLimit: 200, maxAccounts: 20
+  includeReplies: false, includeReposts: false, dailyModelLimit: 200, maxAccounts: 20,
+  realtimeWeComAppEnabled: true, groupDailySummaryEnabled: true, dailySummaryTime: '18:30'
 };

@@ -4,7 +4,11 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AppData, AppLog, AppSettings, DEFAULT_SETTINGS, MonitorAccount, SecretSettings, StoredPost } from './types.js';
 
-const EMPTY_SECRETS: SecretSettings = { openaiApiKey: '', wecomWebhookUrl: '', xOfficialBearerToken: '', xCookieHeader: '', xAccountAlias: 'desktop-monitor' };
+const EMPTY_SECRETS: SecretSettings = {
+  openaiApiKey: '', wecomWebhookUrl: '', wecomCorpId: '', wecomAgentId: '',
+  wecomAppSecret: '', wecomRecipientUserIds: '', xOfficialBearerToken: '',
+  xCookieHeader: '', xAccountAlias: 'desktop-monitor'
+};
 
 export class DataStore {
   private data!: AppData;
@@ -20,8 +24,10 @@ export class DataStore {
   async init() {
     await mkdir(dirname(this.dataPath), { recursive: true });
     try { this.data = JSON.parse(await readFile(this.dataPath, 'utf8')) as AppData; }
-    catch { this.data = { version: 1, settings: DEFAULT_SETTINGS, accounts: [], posts: [], logs: [], usage: {} }; await this.persist(); }
+    catch { this.data = { version: 2, settings: DEFAULT_SETTINGS, accounts: [], posts: [], logs: [], usage: {}, dailySummaryDates: [] }; await this.persist(); }
+    this.data.version = 2;
     this.data.settings = { ...DEFAULT_SETTINGS, ...this.data.settings };
+    this.data.dailySummaryDates = this.data.dailySummaryDates || [];
   }
 
   snapshot(): AppData { return structuredClone(this.data); }
@@ -62,6 +68,8 @@ export class DataStore {
   async log(level: AppLog['level'], component: string, message: string) { this.data.logs.unshift({ id: randomUUID(), at: new Date().toISOString(), level, component, message }); this.data.logs = this.data.logs.slice(0, 500); await this.persist(); }
   getUsageToday() { return this.data.usage[new Date().toISOString().slice(0,10)] || 0; }
   async countModelCall() { const key = new Date().toISOString().slice(0,10); this.data.usage[key] = (this.data.usage[key] || 0) + 1; await this.persist(); }
+  hasDailySummary(date: string) { return this.data.dailySummaryDates.includes(date); }
+  async markDailySummary(date: string) { this.data.dailySummaryDates = [...new Set([...this.data.dailySummaryDates, date])].slice(-90); await this.persist(); }
 
   private async persist() {
     const payload = JSON.stringify(this.data, null, 2); const tmp = `${this.dataPath}.tmp`;
