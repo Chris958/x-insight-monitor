@@ -5,16 +5,22 @@ import { DataStore } from './store.js';
 import { AiClient } from './ai.js';
 import { SearchClient } from './search.js';
 import { StoredPost, XPost, RuntimeStatus, MonitorAccount, Evidence, SecretSettings, XSource } from './types.js';
-import { renderFlash, renderReport, WeComClient } from './wecom.js';
+import { renderDailySummary, renderMpNews, renderRealtimeText, WeComAppClient, WeComWebhookClient } from './wecom.js';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const isNewer = (a: string, b?: string) => !b || BigInt(a) > BigInt(b);
+const localClock = (date: Date, timezone: string) => {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone:timezone, year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23' }).formatToParts(date).map(part => [part.type, part.value]));
+  return { date:`${parts.year}-${parts.month}-${parts.day}`, minutes:Number(parts.hour) * 60 + Number(parts.minute) };
+};
 
 export class MonitorEngine {
   private timer?: NodeJS.Timeout;
   private unofficialCollector = new CollectorClient();
   private collector?: { fetch(username: string, limit?: number, sinceId?: string): Promise<XPost[]> };
   private search = new SearchClient();
+  private wecomApp?: WeComAppClient;
+  private groupWebhook?: WeComWebhookClient;
   private busy = new Set<string>();
   private status: RuntimeStatus = { running:false, collector:'unknown', configured:false, activeJobs:0 };
   constructor(private store: DataStore, private onChange: () => void) {}
@@ -24,7 +30,9 @@ export class MonitorEngine {
   async start() {
     if (this.status.running) return;
     const secrets = await this.store.getSecrets();
-    if (!secrets.openaiApiKey || !secrets.wecomWebhookUrl || (!secrets.xOfficialBearerToken && !secrets.xCookieHeader)) throw new Error('请先配置 OpenAI API Key、企业微信 Webhook，以及 X 官方 Bearer Token 或 X Cookie');
+    const settings = this.store.getSettings();
+    if (!secrets.openaiApiKey || (!secrets.xOfficialBearerToken && !secrets.xCookieHeader)) throw new Error('请先配置 OpenAI API Key，以及 X 官方 Bearer Token 或 X Cookie');
+    this.configurePush(settings, secrets);
     const source = await this.configureCollector(secrets);
     this.status = { ...this.status, running:true, collector:'healthy', configured:true, activeSource:source };
     await this.store.log('info','engine',`监控服务已启动，当前渠道：${source === 'official_x' ? 'X 官方 API' : 'twscrape 非官方源'}`); this.schedule(500); this.onChange();
@@ -38,7 +46,12 @@ export class MonitorEngine {
   async pollNow(accountId: string) { const account = this.store.getAccount(accountId); if (!account) throw new Error('账号不存在'); if (!this.status.running) await this.start(); await this.poll(account, true); }
 
   async testModel() { const s=this.store.getSettings(), secret=await this.store.getSecrets(); if(!secret.openaiApiKey) throw new Error('请先填写 API Key'); return new AiClient(s.openaiBaseUrl,secret.openaiApiKey).test(s.translationModel); }
-  async testWeCom() { const secret=await this.store.getSecrets(); if(!secret.wecomWebhookUrl) throw new Error('请先填写企业微信 Webhook'); await new WeComClient(secret.wecomWebhookUrl).test(); }
+  async testWeComApp() {
+    const secret=await this.store.getSecrets();
+    const client=this.createWeComApp(secret);
+    await client.test();
+  }
+  async testDailySummary() { const secret=await this.store.getSecrets(); if(!secret.wecomWebhookUrl) throw new Error('请先填写企业微信群机器人 Webhook'); await new WeComWebhookClient(secret.wecomWebhookUrl).test(); }
   async testCollector() {
     const secret=await this.store.getSecrets();
     if(!secret.xOfficialBearerToken&&!secret.xCookieHeader) throw new Error('请先填写 X 官方 Bearer Token 或 X Cookie');
@@ -65,11 +78,25 @@ export class MonitorEngine {
     return 'twscrape';
   }
 
+  private createWeComApp(secret: SecretSettings) {
+    if (!secret.wecomCorpId || !secret.wecomAgentId || !secret.wecomAppSecret || !secret.wecomRecipientUserIds) throw new Error('请完整填写企业ID、应用AgentID、应用Secret和接收成员UserID');
+    if (!/^\d+$/.test(secret.wecomAgentId)) throw new Error('企业微信应用 AgentID 必须是数字');
+    return new WeComAppClient({ corpId:secret.wecomCorpId, agentId:secret.wecomAgentId, appSecret:secret.wecomAppSecret, recipients:secret.wecomRecipientUserIds });
+  }
+
+  private configurePush(settings: ReturnType<DataStore['getSettings']>, secret: SecretSettings) {
+    this.wecomApp = settings.realtimeWeComAppEnabled ? this.createWeComApp(secret) : undefined;
+    if (settings.groupDailySummaryEnabled && !secret.wecomWebhookUrl) throw new Error('已开启每日群汇总，请填写企业微信群机器人 Webhook');
+    this.groupWebhook = settings.groupDailySummaryEnabled ? new WeComWebhookClient(secret.wecomWebhookUrl) : undefined;
+  }
+
   private schedule(delay = 10000) { if (!this.status.running) return; this.timer = setTimeout(() => void this.cycle().finally(() => this.schedule()), delay); }
   private async cycle() {
     this.status.lastCycleAt = new Date().toISOString();
     const now = Date.now(); const accounts = this.store.snapshot().accounts.filter(a => a.enabled && (!a.nextPollAt || new Date(a.nextPollAt).getTime() <= now));
-    await Promise.allSettled(accounts.map(a => this.poll(a, false))); this.onChange();
+    await Promise.allSettled(accounts.map(a => this.poll(a, false)));
+    await this.maybeSendDailySummary();
+    this.onChange();
   }
 
   private async poll(account: MonitorAccount, manual: boolean) {
@@ -102,13 +129,16 @@ export class MonitorEngine {
   private async process(source: XPost) {
     const post: StoredPost = { ...source, id:randomUUID(), discoveredAt:new Date().toISOString(), status:'DISCOVERED' };
     await this.store.upsertPost(post); this.onChange();
-    const settings=this.store.getSettings(), secrets=await this.store.getSecrets(), ai=new AiClient(settings.openaiBaseUrl,secrets.openaiApiKey), wecom=new WeComClient(secrets.wecomWebhookUrl);
+    const settings=this.store.getSettings(), secrets=await this.store.getSecrets(), ai=new AiClient(settings.openaiBaseUrl,secrets.openaiApiKey);
     try {
       this.guardQuota(); await this.store.updatePost(post.id,{status:'TRANSLATING'});
       const translation=await this.retry(() => ai.translate(settings.translationModel,post.text),3); await this.store.countModelCall();
       await this.store.updatePost(post.id,{translation,status:'FLASH_READY'});
-      await this.retry(() => wecom.send(renderFlash(this.store.getPost(post.id)!,settings.timezone)),5);
-      await this.store.updatePost(post.id,{flashSentAt:new Date().toISOString(),status:'FLASH_SENT'});
+      if (this.wecomApp) {
+        try { await this.retry(() => this.wecomApp!.sendText(renderRealtimeText(this.store.getPost(post.id)!,settings.timezone)),3); await this.store.updatePost(post.id,{flashSentAt:new Date().toISOString()}); }
+        catch(error) { await this.recordPushError(post.id, 'Text实时推送', error); }
+      }
+      await this.store.updatePost(post.id,{status:'FLASH_SENT'});
       this.guardQuota(); await this.store.updatePost(post.id,{status:'ANALYZING'});
       const analysis=await this.retry(() => ai.analyze(settings.analysisModel,post.text,translation.translatedText),3); await this.store.countModelCall();
       await this.store.updatePost(post.id,{...analysis,status:'VERIFYING'});
@@ -118,11 +148,38 @@ export class MonitorEngine {
         this.guardQuota(); claimResults.push(await this.retry(() => ai.verify(settings.analysisModel,claim,evidence),2)); await this.store.countModelCall();
       }
       await this.store.updatePost(post.id,{claimResults,status:'REPORT_READY'});
-      await this.retry(() => wecom.send(renderReport(this.store.getPost(post.id)!)),5);
-      await this.store.updatePost(post.id,{reportSentAt:new Date().toISOString(),status:'REPORT_SENT'});
-      await this.store.log('info','pipeline',`@${post.username} 帖子 ${post.postId} 已完成两阶段推送`);
+      if (this.wecomApp) {
+        try { await this.retry(() => this.wecomApp!.sendMpNews(renderMpNews(this.store.getPost(post.id)!)),3); await this.store.updatePost(post.id,{reportSentAt:new Date().toISOString()}); }
+        catch(error) { await this.recordPushError(post.id, 'MPNews完整报告推送', error); }
+      }
+      await this.store.updatePost(post.id,{status:'REPORT_COMPLETE'});
+      await this.store.log('info','pipeline',`@${post.username} 帖子 ${post.postId} 已完成分析并保存完整历史`);
     } catch(error) { const message=error instanceof Error?error.message:String(error); await this.store.updatePost(post.id,{status:'FAILED_FINAL',error:message}); await this.store.log('error','pipeline',`帖子 ${post.postId}: ${message}`); }
     this.onChange();
+  }
+
+  private async recordPushError(postId: string, stage: string, error: unknown) {
+    const message=error instanceof Error ? error.message : String(error);
+    const post=this.store.getPost(postId);
+    await this.store.updatePost(postId,{pushErrors:[...(post?.pushErrors || []),`${stage}: ${message}`]});
+    await this.store.log('warn','push',`帖子 ${post?.postId || postId} ${stage}失败：${message}`);
+  }
+
+  private async maybeSendDailySummary() {
+    const settings=this.store.getSettings();
+    if (!settings.groupDailySummaryEnabled || !this.groupWebhook) return;
+    const clock=localClock(new Date(), settings.timezone);
+    const [hour,minute]=settings.dailySummaryTime.split(':').map(Number);
+    if (!Number.isFinite(hour) || !Number.isFinite(minute) || clock.minutes < hour * 60 + minute || this.store.hasDailySummary(clock.date)) return;
+    const posts=this.store.snapshot().posts.filter(post => localClock(new Date(post.discoveredAt), settings.timezone).date === clock.date);
+    if (!posts.length) return;
+    try {
+      await this.retry(() => this.groupWebhook!.sendMarkdown(renderDailySummary(posts, clock.date)),3);
+      await this.store.markDailySummary(clock.date);
+      await this.store.log('info','push',`${clock.date} 企业微信群每日汇总已发送，共 ${posts.length} 条`);
+    } catch(error) {
+      await this.store.log('warn','push',`每日群汇总发送失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private guardQuota() { if(this.store.getUsageToday()>=this.store.getSettings().dailyModelLimit) throw new Error('已达到今日模型调用上限'); }
