@@ -1,6 +1,13 @@
 # 开发状态
 
-版本：0.3.0 MVP
+版本：0.3.1 MVP
+
+## v0.3.1 更新
+
+- 所有企业微信推送统一改为群机器人 Webhook：实时快讯、完整 Markdown 报告和每日汇总共用一个配置。
+- 移除 CorpID、AgentID、应用 Secret、接收成员 UserID、access token、素材上传和 MPNews 链路。
+- 保留实时推送与每日汇总独立开关，并兼容迁移 v0.3.0 的实时推送开关。
+- 增加 Webhook 域名与路径校验、接口异常解析和机器人请求测试。
 
 ## v0.3.0 更新
 
@@ -26,13 +33,13 @@
 - 账号基线、过滤、轮询抖动、指数退避和 X 帖子 ID 去重。
 - OpenAI Responses API 翻译、主张拆解、逻辑分析和证据判断。
 - DuckDuckGo 免费检索 Provider 与来源初步分级。
-- 企业微信自建应用 Text/MPNews、群机器人每日汇总、UTF-8 字节限制、去重和重试。
+- 企业微信机器人实时快讯、完整报告、每日汇总、UTF-8 字节限制、去重和重试。
 - PyInstaller + electron-builder 打包链路和三平台架构 CI。
 
 ## 发布前必须完成
 
 1. 使用真实专用 X 账号验证 Cookie 登录与 10 个目标账号连续采集。
-2. 使用真实模型 API、企业微信自建应用、微信插件和群机器人完成端到端测试。
+2. 使用真实模型 API 和企业微信群机器人 Webhook 完成端到端测试。
 3. 在 Windows x64、macOS Intel、macOS Apple Silicon 实机验证安装、托盘、开机启动和休眠恢复。
 4. 配置 Windows 代码签名、Apple Developer ID 签名与公证。
 5. 运行 72 小时稳定性测试，并按人工标注的 100 条帖子评测分析质量。

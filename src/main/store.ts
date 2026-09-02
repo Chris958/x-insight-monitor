@@ -5,8 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { AppData, AppLog, AppSettings, DEFAULT_SETTINGS, MonitorAccount, SecretSettings, StoredPost } from './types.js';
 
 const EMPTY_SECRETS: SecretSettings = {
-  openaiApiKey: '', wecomWebhookUrl: '', wecomCorpId: '', wecomAgentId: '',
-  wecomAppSecret: '', wecomRecipientUserIds: '', xOfficialBearerToken: '',
+  openaiApiKey: '', wecomWebhookUrl: '', xOfficialBearerToken: '',
   xCookieHeader: '', xAccountAlias: 'desktop-monitor'
 };
 
@@ -26,7 +25,13 @@ export class DataStore {
     try { this.data = JSON.parse(await readFile(this.dataPath, 'utf8')) as AppData; }
     catch { this.data = { version: 2, settings: DEFAULT_SETTINGS, accounts: [], posts: [], logs: [], usage: {}, dailySummaryDates: [] }; await this.persist(); }
     this.data.version = 2;
-    this.data.settings = { ...DEFAULT_SETTINGS, ...this.data.settings };
+    const legacySettings = this.data.settings as AppSettings & { realtimeWeComAppEnabled?: boolean };
+    this.data.settings = {
+      ...DEFAULT_SETTINGS,
+      ...this.data.settings,
+      realtimeWebhookEnabled: legacySettings.realtimeWebhookEnabled ?? legacySettings.realtimeWeComAppEnabled ?? true
+    };
+    delete (this.data.settings as AppSettings & { realtimeWeComAppEnabled?: boolean }).realtimeWeComAppEnabled;
     this.data.dailySummaryDates = this.data.dailySummaryDates || [];
   }
 
@@ -38,7 +43,12 @@ export class DataStore {
     try {
       const bytes = await readFile(this.secretsPath);
       if (!safeStorage.isEncryptionAvailable()) return EMPTY_SECRETS;
-      return { ...EMPTY_SECRETS, ...JSON.parse(safeStorage.decryptString(bytes)) };
+      const raw = JSON.parse(safeStorage.decryptString(bytes)) as Partial<SecretSettings>;
+      return {
+        openaiApiKey:raw.openaiApiKey || '', wecomWebhookUrl:raw.wecomWebhookUrl || '',
+        xOfficialBearerToken:raw.xOfficialBearerToken || '', xCookieHeader:raw.xCookieHeader || '',
+        xAccountAlias:raw.xAccountAlias || 'desktop-monitor'
+      };
     } catch { return structuredClone(EMPTY_SECRETS); }
   }
 
