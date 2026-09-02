@@ -2,6 +2,7 @@ name: Build desktop installers
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
 jobs:
   build:
