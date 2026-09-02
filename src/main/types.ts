@@ -13,7 +13,7 @@ export interface AppSettings {
   includeReposts: boolean;
   dailyModelLimit: number;
   maxAccounts: number;
-  realtimeWeComAppEnabled: boolean;
+  realtimeWebhookEnabled: boolean;
   groupDailySummaryEnabled: boolean;
   dailySummaryTime: string;
 }
@@ -21,10 +21,6 @@ export interface AppSettings {
 export interface SecretSettings {
   openaiApiKey: string;
   wecomWebhookUrl: string;
-  wecomCorpId: string;
-  wecomAgentId: string;
-  wecomAppSecret: string;
-  wecomRecipientUserIds: string;
   xOfficialBearerToken: string;
   xCookieHeader: string;
   xAccountAlias: string;
@@ -71,5 +67,5 @@ export const DEFAULT_SETTINGS: AppSettings = {
   translationModel: 'gpt-5.6-luna', analysisModel: 'gpt-5.6',
   timezone: 'Asia/Shanghai', autoStart: false, launchMinimized: false,
   includeReplies: false, includeReposts: false, dailyModelLimit: 200, maxAccounts: 20,
-  realtimeWeComAppEnabled: true, groupDailySummaryEnabled: true, dailySummaryTime: '18:30'
+  realtimeWebhookEnabled: true, groupDailySummaryEnabled: true, dailySummaryTime: '18:30'
 };

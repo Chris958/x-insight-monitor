@@ -9,6 +9,6 @@ contextBridge.exposeInMainWorld('xMonitor', {
   deleteAccount: (id: string) => ipcRenderer.invoke('accounts:delete', id),
   pollAccount: (id: string) => ipcRenderer.invoke('accounts:poll', id),
   start: () => ipcRenderer.invoke('engine:start'), stop: () => ipcRenderer.invoke('engine:stop'),
-  testModel: () => ipcRenderer.invoke('test:model'), testWeComApp: () => ipcRenderer.invoke('test:wecom-app'), testWeComSummary: () => ipcRenderer.invoke('test:wecom-summary'), testCollector: () => ipcRenderer.invoke('test:collector'),
+  testModel: () => ipcRenderer.invoke('test:model'), testWeComWebhook: () => ipcRenderer.invoke('test:wecom-webhook'), testCollector: () => ipcRenderer.invoke('test:collector'),
   onStateChanged: (callback: () => void) => { const listener=()=>callback(); ipcRenderer.on('state:changed',listener); return ()=>ipcRenderer.removeListener('state:changed',listener); }
 });

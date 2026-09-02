@@ -21,16 +21,16 @@ function createTray(){
 }
 
 function registerIpc(){
-  ipcMain.handle('state:get',async()=>{const snap=store.snapshot(),secrets=await store.getSecrets();return{data:snap,status:engine.getStatus(),secretFlags:{openaiApiKey:!!secrets.openaiApiKey,wecomWebhookUrl:!!secrets.wecomWebhookUrl,wecomAppSecret:!!secrets.wecomAppSecret,wecomAppConfigured:!!(secrets.wecomCorpId&&secrets.wecomAgentId&&secrets.wecomAppSecret&&secrets.wecomRecipientUserIds),xOfficialBearerToken:!!secrets.xOfficialBearerToken,xCookieHeader:!!secrets.xCookieHeader},secrets:{...secrets,openaiApiKey:'',wecomWebhookUrl:'',wecomAppSecret:'',xOfficialBearerToken:'',xCookieHeader:''}}});
-  ipcMain.handle('settings:save',async(_e,value)=>{const before=store.getSettings();await store.saveSettings(value);const s=store.getSettings();app.setLoginItemSettings({openAtLogin:s.autoStart,openAsHidden:s.launchMinimized});settingsRequireRestart=settingsRequireRestart||before.realtimeWeComAppEnabled!==s.realtimeWeComAppEnabled||before.groupDailySummaryEnabled!==s.groupDailySummaryEnabled||before.dailySummaryTime!==s.dailySummaryTime;notify();});
+  ipcMain.handle('state:get',async()=>{const snap=store.snapshot(),secrets=await store.getSecrets();return{data:snap,status:engine.getStatus(),secretFlags:{openaiApiKey:!!secrets.openaiApiKey,wecomWebhookUrl:!!secrets.wecomWebhookUrl,xOfficialBearerToken:!!secrets.xOfficialBearerToken,xCookieHeader:!!secrets.xCookieHeader},secrets:{...secrets,openaiApiKey:'',wecomWebhookUrl:'',xOfficialBearerToken:'',xCookieHeader:''}}});
+  ipcMain.handle('settings:save',async(_e,value)=>{const before=store.getSettings();await store.saveSettings(value);const s=store.getSettings();app.setLoginItemSettings({openAtLogin:s.autoStart,openAsHidden:s.launchMinimized});settingsRequireRestart=settingsRequireRestart||before.realtimeWebhookEnabled!==s.realtimeWebhookEnabled||before.groupDailySummaryEnabled!==s.groupDailySummaryEnabled||before.dailySummaryTime!==s.dailySummaryTime;notify();});
   ipcMain.handle('secrets:save',async(_e,value)=>{
     const current=await store.getSecrets(),input=value as Record<string,unknown>,patch:Record<string,string>={};
-    for(const key of ['openaiApiKey','wecomWebhookUrl','wecomCorpId','wecomAgentId','wecomAppSecret','wecomRecipientUserIds','xOfficialBearerToken','xCookieHeader','xAccountAlias']) if(typeof input[key]==='string') patch[key]=input[key] as string;
-    for(const key of ['openaiApiKey','wecomWebhookUrl','wecomAppSecret','xOfficialBearerToken','xCookieHeader']) if(!patch[key]) patch[key]=(current as any)[key];
+    for(const key of ['openaiApiKey','wecomWebhookUrl','xOfficialBearerToken','xCookieHeader','xAccountAlias']) if(typeof input[key]==='string') patch[key]=input[key] as string;
+    for(const key of ['openaiApiKey','wecomWebhookUrl','xOfficialBearerToken','xCookieHeader']) if(!patch[key]) patch[key]=(current as any)[key];
     if(input.clearXOfficialBearerToken===true) patch.xOfficialBearerToken='';
     const next={...current,...patch};
     const sourceChanged=next.xOfficialBearerToken!==current.xOfficialBearerToken||next.xCookieHeader!==current.xCookieHeader||next.xAccountAlias!==current.xAccountAlias;
-    const pushChanged=next.wecomWebhookUrl!==current.wecomWebhookUrl||next.wecomCorpId!==current.wecomCorpId||next.wecomAgentId!==current.wecomAgentId||next.wecomAppSecret!==current.wecomAppSecret||next.wecomRecipientUserIds!==current.wecomRecipientUserIds;
+    const pushChanged=next.wecomWebhookUrl!==current.wecomWebhookUrl;
     const wasRunning=engine.getStatus().running;
     await store.saveSecrets(next);
     if(wasRunning&&(sourceChanged||pushChanged||settingsRequireRestart)){await engine.stop();await engine.start();}
@@ -39,7 +39,7 @@ function registerIpc(){
   });
   ipcMain.handle('accounts:add',async(_e,v)=>{const r=await store.addAccount(v);notify();return r;}); ipcMain.handle('accounts:update',async(_e,id,v)=>{const r=await store.updateAccount(id,v);notify();return r;}); ipcMain.handle('accounts:delete',async(_e,id)=>{await store.deleteAccount(id);notify();}); ipcMain.handle('accounts:poll',async(_e,id)=>engine.pollNow(id));
   ipcMain.handle('engine:start',async()=>{await engine.start();notify();}); ipcMain.handle('engine:stop',async()=>{await engine.stop();notify();});
-  ipcMain.handle('test:model',()=>engine.testModel()); ipcMain.handle('test:wecom-app',()=>engine.testWeComApp()); ipcMain.handle('test:wecom-summary',()=>engine.testDailySummary()); ipcMain.handle('test:collector',()=>engine.testCollector());
+  ipcMain.handle('test:model',()=>engine.testModel()); ipcMain.handle('test:wecom-webhook',()=>engine.testWeComWebhook()); ipcMain.handle('test:collector',()=>engine.testCollector());
 }
 
 app.whenReady().then(async()=>{store=new DataStore();await store.init();engine=new MonitorEngine(store,notify);registerIpc();createWindow();createTray();if(store.getSettings().autoStart)engine.start().catch(e=>store.log('error','startup',e.message));});

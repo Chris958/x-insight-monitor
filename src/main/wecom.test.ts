@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { splitMarkdown, truncateUtf8, utf8Bytes, WeComAppClient } from './wecom.js';
+import { splitMarkdown, truncateUtf8, utf8Bytes, validateWeComWebhook, WeComWebhookClient } from './wecom.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -20,28 +20,25 @@ describe('UTF-8 message limits', () => {
   });
 });
 
-describe('WeCom application messages', () => {
-  it('sends Text to configured recipients and agent', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode:0, access_token:'token', expires_in:7200 }), { status:200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode:0, errmsg:'ok' }), { status:200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const client = new WeComAppClient({ corpId:'ww-test', agentId:'1000002', appSecret:'secret', recipients:'user1|user2' });
-    await client.sendText('事实审查完成');
-    const payload = JSON.parse(fetchMock.mock.calls[1][1].body);
-    expect(payload).toMatchObject({ touser:'user1|user2', agentid:1000002, msgtype:'text', text:{ content:'事实审查完成' } });
+describe('WeCom webhook messages', () => {
+  const webhook = 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=00000000-0000-0000-0000-000000000000';
+
+  it('rejects non-WeCom webhook URLs', () => {
+    expect(() => validateWeComWebhook('https://example.com/hook?key=test')).toThrow('完整 Webhook');
+    expect(() => validateWeComWebhook('not-a-url')).toThrow('格式无效');
   });
 
-  it('uploads a thumbnail and sends MPNews', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode:0, access_token:'token', expires_in:7200 }), { status:200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode:0, media_id:'media-1' }), { status:200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errcode:0, errmsg:'ok' }), { status:200 }));
+  it('sends markdown through the configured group robot', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ errcode:0, errmsg:'ok' }), { status:200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const client = new WeComAppClient({ corpId:'ww-test', agentId:'1000002', appSecret:'secret', recipients:'user1' });
-    await client.sendMpNews({ title:'报告', digest:'摘要', content:'<p>完整内容</p>', sourceUrl:'https://x.com/test' });
-    const payload = JSON.parse(fetchMock.mock.calls[2][1].body);
-    expect(payload.msgtype).toBe('mpnews');
-    expect(payload.mpnews.articles[0]).toMatchObject({ title:'报告', thumb_media_id:'media-1', content:'<p>完整内容</p>' });
+    await new WeComWebhookClient(webhook).sendMarkdown('## 事实审查完成');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe(webhook);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ msgtype:'markdown', markdown:{ content:'## 事实审查完成' } });
+  });
+
+  it('reports Enterprise WeChat API errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ errcode:93000, errmsg:'invalid webhook url' }), { status:200 })));
+    await expect(new WeComWebhookClient(webhook).sendMarkdown('test')).rejects.toThrow('invalid webhook url');
   });
 });
