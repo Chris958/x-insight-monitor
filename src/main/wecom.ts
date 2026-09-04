@@ -1,4 +1,4 @@
-import { ClaimResult, StoredPost } from './types.js';
+import { StoredPost } from './types.js';
 
 export const utf8Bytes = (value: string) => Buffer.byteLength(value, 'utf8');
 
@@ -74,27 +74,31 @@ export class WeComWebhookClient {
 
 export function renderRealtimeText(post: StoredPost, timezone: string) {
   const time = new Intl.DateTimeFormat('zh-CN', { dateStyle:'medium', timeStyle:'medium', timeZone:timezone }).format(new Date(post.publishedAt));
-  return `## X监控快讯｜@${post.username}\n> ${time}\n\n${post.translation?.summaryZh || '已发现新帖子'}\n\n${post.translation?.translatedText || ''}\n\n[查看 X 原帖](${post.url})\n\n> 事实核查进行中，完成后将继续推送分析报告。`;
-}
-
-function renderClaimMarkdown(post: StoredPost, result: ClaimResult, index: number) {
-  const claim = post.claims?.find(item => item.id === result.claimId);
-  const sources = result.evidence.length
-    ? result.evidence.map(source => `   - [${source.title}](${source.url})（${source.publisher}）`).join('\n')
-    : '   - 无可用外部来源';
-  return `**${index + 1}. ${claim?.claim || ''}**\n> 结论：${result.verdict}｜证据充分度：${result.confidence}\n\n${result.rationale}\n\n${sources}`;
+  return `## X监控快讯｜@${post.username}\n> ${time}\n\n**核心观点**\n${post.translation?.summaryZh || '已发现新帖子'}\n\n[查看 X 原帖](${post.url})\n\n> 正在核查核心观点及潜在受益方向。`;
 }
 
 const bullets = (items?: string[]) => items?.length ? items.map(item => `- ${item}`).join('\n') : '- 无';
 
 export function renderReportMarkdown(post: StoredPost) {
-  const claims = (post.claimResults || []).map((result, index) => renderClaimMarkdown(post, result, index)).join('\n\n');
-  return `## @${post.username} 事实审查｜${post.overallResult || '分析完成'}\n\n**中文摘要**\n${post.translation?.summaryZh || '—'}\n\n**中文翻译**\n${post.translation?.translatedText || '—'}\n\n**总体判断**\n> ${post.overallResult || '请查看分项结论'}\n\n**观点与逻辑**\n${post.logic?.conclusion || '无实质观点'}\n\n**逻辑风险**\n${bullets(post.logic?.reasoningGaps)}\n\n**替代解释**\n${bullets(post.logic?.alternativeExplanations)}\n\n**事实核查**\n${claims || '没有需要核查的事实主张'}\n\n**局限**\n${bullets(post.limitations)}\n\n[查看 X 原帖](${post.url})`;
+  const review=post.investmentReview;
+  if (!review) return `## @${post.username}｜分析未完成\n\n${post.translation?.summaryZh || '暂无摘要'}\n\n[查看 X 原帖](${post.url})`;
+  const industries=review.beneficiaryIndustries.length
+    ? review.beneficiaryIndustries.map(item => `- **${item.name}**：${item.rationale}`).join('\n') : '- 暂无明确方向';
+  const companies=review.beneficiaryCompanies.length
+    ? review.beneficiaryCompanies.map(item => `- **${item.name}**（${item.ticker} · ${item.market}）｜${item.confidence}\n  ${item.rationale}`).join('\n') : '- 暂无足够证据确认具体公司';
+  const sources=review.evidence.length
+    ? review.evidence.map(item => `- [${item.title}](${item.url})（${item.publisher}）`).join('\n') : '- 无可用外部证据';
+  return `## @${post.username}｜${review.verdict}\n\n**核心观点**\n${review.coreViewpoint}\n\n**审查结论**\n> ${review.verification}\n\n**可能利好行业**\n${industries}\n\n**可能受益公司**\n${companies}\n\n**关键风险**\n${bullets(review.risks)}\n\n**主要依据**\n${sources}\n\n[查看 X 原帖](${post.url})`;
 }
 
 export function renderDailySummary(posts: StoredPost[], date: string) {
   const completed = posts.filter(post => post.status === 'REPORT_COMPLETE' || post.status === 'REPORT_SENT');
   const failed = posts.filter(post => post.status === 'FAILED_FINAL');
-  const rows = posts.slice(0, 30).map((post, index) => `${index + 1}. **@${post.username}**｜${post.overallResult || post.status}\n   ${truncateUtf8(post.translation?.summaryZh || post.text, 240)}\n   [原帖](${post.url})`).join('\n\n');
+  const rows = posts.slice(0, 30).map((post, index) => {
+    const review=post.investmentReview;
+    const industries=review?.beneficiaryIndustries.map(item => item.name).join('、') || '暂无明确行业';
+    const companies=review?.beneficiaryCompanies.slice(0,3).map(item => `${item.name}(${item.ticker})`).join('、') || '暂无明确公司';
+    return `${index + 1}. **@${post.username}**｜${review?.verdict || post.status}\n   ${truncateUtf8(review?.coreViewpoint || post.translation?.summaryZh || post.text, 180)}\n   行业：${industries}\n   公司：${companies}\n   [原帖](${post.url})`;
+  }).join('\n\n');
   return `## X Insight Monitor｜${date} 每日汇总\n> 新帖 ${posts.length}｜完成 ${completed.length}｜失败 ${failed.length}\n\n${rows || '今日暂无新帖'}${posts.length > 30 ? `\n\n> 另有 ${posts.length - 30} 条，请在桌面应用查看完整历史。` : ''}`;
 }

@@ -131,15 +131,16 @@ export class MonitorEngine {
         catch(error) { await this.recordPushError(post.id, '机器人实时快讯推送', error); }
       }
       await this.store.updatePost(post.id,{status:'FLASH_SENT'});
-      this.guardQuota(); await this.store.updatePost(post.id,{status:'ANALYZING'});
-      const analysis=await this.retry(() => ai.analyze(settings.analysisModel,post.text,translation.translatedText),3); await this.store.countModelCall();
-      await this.store.updatePost(post.id,{...analysis,status:'VERIFYING'});
-      const claimResults=[];
-      for (const claim of analysis.claims) {
-        let evidence: Evidence[]=[]; if (claim.type==='FACT'||claim.type==='NUMERIC_FACT') { try { evidence=await this.search.search(claim.claim,5); } catch(error) { await this.store.log('warn','search',error instanceof Error?error.message:String(error)); } }
-        this.guardQuota(); claimResults.push(await this.retry(() => ai.verify(settings.analysisModel,claim,evidence),2)); await this.store.countModelCall();
+      await this.store.updatePost(post.id,{status:'SEARCHING'});
+      const searchResults = await Promise.allSettled((translation.searchQueries?.length ? translation.searchQueries : [translation.summaryZh]).slice(0,2).map(query => this.search.search(query,4)));
+      const evidence: Evidence[]=[]; const seenUrls=new Set<string>();
+      for (const result of searchResults) {
+        if (result.status === 'rejected') { await this.store.log('warn','search',result.reason instanceof Error?result.reason.message:String(result.reason)); continue; }
+        for (const item of result.value) if (!seenUrls.has(item.url)) { seenUrls.add(item.url); evidence.push(item); }
       }
-      await this.store.updatePost(post.id,{claimResults,status:'REPORT_READY'});
+      this.guardQuota(); await this.store.updatePost(post.id,{status:'REVIEWING'});
+      const investmentReview=await this.retry(() => ai.reviewInvestment(settings.analysisModel,translation,evidence.slice(0,8)),3); await this.store.countModelCall();
+      await this.store.updatePost(post.id,{investmentReview,status:'REPORT_READY'});
       if (settings.realtimeWebhookEnabled && this.wecomWebhook) {
         try { await this.retry(() => this.wecomWebhook!.sendMarkdown(renderReportMarkdown(this.store.getPost(post.id)!)),3); await this.store.updatePost(post.id,{reportSentAt:new Date().toISOString()}); }
         catch(error) { await this.recordPushError(post.id, '机器人完整报告推送', error); }

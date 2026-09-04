@@ -43,15 +43,27 @@ export interface XPost {
   metrics?: { likes?: number; replies?: number; reposts?: number; views?: number };
 }
 
-export interface Translation { language: string; summaryZh: string; translatedText: string; uncertainTerms: string[]; }
+export interface Translation { language: string; summaryZh: string; translatedText: string; uncertainTerms: string[]; searchQueries: string[]; }
 export interface Claim { id: string; type: 'FACT' | 'NUMERIC_FACT' | 'OPINION' | 'PREDICTION' | 'OTHER'; claim: string; metric: string; value: string; unit: string; timeScope: string; geography: string; missingContext: string[]; }
 export interface LogicAnalysis { conclusion: string; explicitPremises: string[]; implicitAssumptions: string[]; reasoningGaps: string[]; alternativeExplanations: string[]; validityConditions: string[]; }
 export interface Evidence { title: string; url: string; publisher: string; snippet: string; grade: 'A'|'B'|'C'|'D'; }
 export interface ClaimResult { claimId: string; verdict: Verdict; confidence: '高'|'中'|'低'; rationale: string; evidence: Evidence[]; }
+export interface BeneficiaryIndustry { name: string; rationale: string; }
+export interface BeneficiaryCompany { name: string; ticker: string; market: string; rationale: string; confidence: '高'|'中'|'低'; }
+export interface InvestmentReview {
+  coreViewpoint: string;
+  verdict: '可信'|'部分可信'|'不可信'|'证据不足';
+  verification: string;
+  beneficiaryIndustries: BeneficiaryIndustry[];
+  beneficiaryCompanies: BeneficiaryCompany[];
+  risks: string[];
+  evidence: Evidence[];
+}
 
 export interface StoredPost extends XPost {
   id: string; discoveredAt: string; status: string; translation?: Translation;
   logic?: LogicAnalysis; claims?: Claim[]; claimResults?: ClaimResult[];
+  investmentReview?: InvestmentReview;
   overallResult?: string; limitations?: string[]; error?: string;
   flashSentAt?: string; reportSentAt?: string;
   pushErrors?: string[];
