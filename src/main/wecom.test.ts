@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { splitMarkdown, truncateUtf8, utf8Bytes, validateWeComWebhook, WeComWebhookClient } from './wecom.js';
+import { renderReportMarkdown, splitMarkdown, truncateUtf8, utf8Bytes, validateWeComWebhook, WeComWebhookClient } from './wecom.js';
+import { StoredPost } from './types.js';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -40,5 +41,27 @@ describe('WeCom webhook messages', () => {
   it('reports Enterprise WeChat API errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ errcode:93000, errmsg:'invalid webhook url' }), { status:200 })));
     await expect(new WeComWebhookClient(webhook).sendMarkdown('test')).rejects.toThrow('invalid webhook url');
+  });
+});
+
+describe('concise investment report', () => {
+  it('shows only the core review and beneficiaries', () => {
+    const post = {
+      username:'analyst', url:'https://x.com/analyst/status/1',
+      translation:{summaryZh:'数据中心电力紧张将增加燃气发电需求',translatedText:'不应出现在精简报告中的完整翻译'},
+      investmentReview:{
+        coreViewpoint:'数据中心电力紧张将增加燃气发电需求', verdict:'部分可信',
+        verification:'电力需求上升有依据，但项目落地节奏仍不确定。',
+        beneficiaryIndustries:[{name:'燃气轮机',rationale:'新增调峰电源需求'}],
+        beneficiaryCompanies:[{name:'GE Vernova',ticker:'GEV',market:'NYSE',rationale:'提供燃气轮机设备',confidence:'高'}],
+        risks:['数据中心建设延期'],
+        evidence:[{title:'Power demand report',url:'https://example.com/report',publisher:'example.com',snippet:'',grade:'B'}]
+      }
+    } as unknown as StoredPost;
+    const report=renderReportMarkdown(post);
+    expect(report).toContain('可能受益公司');
+    expect(report).toContain('GE Vernova');
+    expect(report).not.toContain('不应出现在精简报告中的完整翻译');
+    expect(report.split('\n').length).toBeLessThan(35);
   });
 });

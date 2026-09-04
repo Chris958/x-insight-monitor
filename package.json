@@ -1,7 +1,7 @@
 {
   "name": "x-insight-monitor",
-  "version": "0.3.1",
-  "description": "X 大V监控、翻译、事实核查与企业微信机器人推送桌面应用",
+  "version": "0.3.2",
+  "description": "X 大V核心观点审查、受益行业与公司分析及企业微信机器人推送桌面应用",
   "main": "dist/main/main.js",
   "author": "X Insight Monitor",
   "license": "UNLICENSED",
